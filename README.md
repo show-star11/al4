@@ -250,8 +250,8 @@ PS> curl.exe -X GET ".../subjects/patient-value/versions"
 
 1. Run `docker ps` and check that `schema-registry` shows **Up**.
 2. If it is missing, run `docker compose up -d`.
-3. Wait 30 seconds and run the `curl.exe` command again.
-4. If it keeps stopping, read its log with `docker logs schema-registry`.
+3. Wait 30 to 40 seconds and test with `curl.exe http://localhost:8081/subjects`. It is ready when this prints `[]`.
+4. If it keeps stopping, see Error 9.
 
 ### Error 5: `curl: (26) Failed to open/read local data from file/application`
 
@@ -265,19 +265,71 @@ PS> curl.exe -X GET ".../subjects/patient-value/versions"
 
 ### Error 6: `docker : The term 'docker' is not recognized`
 
-**Cause:** Docker Desktop is not installed, or the terminal cannot find the `docker` program.
+**Cause:** Docker Desktop is not installed, or it is running but the terminal cannot find the `docker` program.
 
-1. Open Docker Desktop and wait for **Engine running**.
-2. Close VS Code completely and open it again.
-3. If it still fails, click the **`>_`** icon at the bottom right of Docker Desktop and run the commands in that terminal after going to the project folder with `cd`.
+1. Open Docker Desktop and wait until it shows **Engine running**.
+2. Run these lines one at a time. They find `docker.exe` and add it to the terminal's path:
+   ```powershell
+   $d = Split-Path (Get-Process "Docker Desktop" | Select-Object -First 1).Path
+   $exe = Get-ChildItem $d, (Split-Path $d), "C:\Program Files\Docker", "$env:LOCALAPPDATA\Programs" -Filter docker.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+   $env:PATH += ";" + $exe.DirectoryName
+   docker --version
+   ```
+3. To keep the fix for every new terminal, run this once:
+   ```powershell
+   [Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";" + $exe.DirectoryName, "User")
+   ```
+4. If it still fails, click the **`>_`** icon at the bottom right of Docker Desktop and run the commands in that terminal after going to the project folder with `cd`.
 
-### Error 7: `port is already allocated`
+### Error 7: `short read ... unexpected EOF` while downloading images
 
-**Cause:** port 9092 or 8081 is used by another container, for example the Kafka cluster of Practical 3.
+**Cause:** the internet connection dropped during the first download. The two images are about 900 MB together.
 
-1. Go to the folder of the other project and run `docker compose down`.
-2. Or remove the old containers: `docker ps -a`, then `docker rm -f <container-name>`.
-3. Run `docker compose up -d` again.
+1. Run `docker compose up -d` again. Docker keeps the parts already downloaded and continues from there.
+2. If it keeps failing, download the images one at a time, then start:
+   ```powershell
+   docker pull bitnamilegacy/kafka:3.7
+   docker pull confluentinc/cp-schema-registry:7.6.1
+   docker compose up -d
+   ```
+
+### Error 8: `Bind for 0.0.0.0:8081 failed: port is already allocated`
+
+**Cause:** another container already uses port 8081 (or 9092).
+
+1. Find it:
+   ```powershell
+   docker ps -a --filter "publish=8081"
+   ```
+2. If it belongs to another project you still need, stop it instead of deleting it:
+   ```powershell
+   docker stop <container-name>
+   ```
+3. Start this practical with `docker compose down`, then `docker compose up -d`.
+4. When finished, run `docker compose down` and start the other container again with `docker start <container-name>`.
+
+If the Kafka cluster from Practical 3 (`kafka1`, `kafka2`, `kafka3`) is still running, stop it too with `docker stop kafka1 kafka2 kafka3`, so it does not use memory.
+
+### Error 9: Schema Registry stops: `Exited (1)` and `DNS resolution failed for kafka`
+
+**Cause:** the `schema-registry` container was created during an earlier failed start (for example while port 8081 was taken) and is not connected to Kafka's network, so it cannot find the container named `kafka`. Restarting it keeps the broken setup.
+
+1. Check its status and log:
+   ```powershell
+   docker ps -a --filter "name=schema-registry"
+   docker logs schema-registry --tail 30
+   ```
+2. If the status is `Exited` and the log shows `DNS resolution failed for kafka` or `No resolvable bootstrap urls`, remove and recreate both containers:
+   ```powershell
+   docker compose down
+   docker compose up -d
+   ```
+3. Wait 40 seconds and test:
+   ```powershell
+   curl.exe http://localhost:8081/subjects
+   ```
+   Schema Registry is ready when this prints `[]`.
+4. If it shows `Exited` again with a different message, it started before Kafka was ready. Run `docker compose restart schema-registry` and wait 40 seconds.
 
 ## Conclusion
 
