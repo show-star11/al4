@@ -55,52 +55,96 @@ Schema Evolution: Use Kafka Schema Registry to demonstrate a "Backward Compatibl
 
 ## Steps to run (Windows PowerShell)
 
-**Step 1. Create the Kafka environment**
+Run every command in the VS Code terminal, inside the project folder. If a step does not give the expected result, the error number in brackets points to the fix in [Errors on Windows and how to fix them](#errors-on-windows-and-how-to-fix-them).
+
+**Step 1. Get the project and open it in VS Code**
 
 ```powershell
 git clone https://github.com/show-star/al4.git
 cd al4
 ```
 
-Open this folder in VS Code. Make sure Docker Desktop shows **Engine running**, then start the containers:
+If the folder path has spaces, put it in double quotes, for example `cd "C:\Users\HP\OneDrive\Desktop\big data1\practical 4\al4"`. Open the folder in VS Code with **File > Open Folder**.
+
+**Step 2. Check Docker**
+
+Open Docker Desktop and wait until it shows **Engine running**. Then run:
+
+```powershell
+docker --version
+```
+
+Expected: a line such as `Docker version 29.x.x`. (Error 6 if `docker` is not recognized.)
+
+**Step 3. Free the ports and memory**
+
+Kafka uses port 9092 and Schema Registry uses port 8081. Stop other containers that use them, and the Practical 3 cluster if it is still running:
+
+```powershell
+docker ps
+docker stop kafka1 kafka2 kafka3
+```
+
+Run `docker stop <container-name>` for any other container in the `docker ps` list that shows `8081` or `9092` in the PORTS column. Stopping does not delete it; it can be started again later with `docker start <container-name>`. (Error 8.)
+
+**Step 4. Start Kafka and Schema Registry**
 
 ```powershell
 docker compose up -d
 ```
 
-**Step 2 and 3. Check that Kafka and Schema Registry are running**
+The first run downloads about 900 MB of images, which can take several minutes. (Error 7 if the download stops.)
+
+Expected:
+
+```text
+✔ Container kafka           Started
+✔ Container schema-registry Started
+```
+
+**Step 5. Check that both containers are running**
+
+Wait 40 seconds, then run:
 
 ```powershell
 docker ps
 ```
 
-Two containers should be listed with status **Up**: `kafka` (port 9092) and `schema-registry` (port 8081). Wait about 30 seconds before the next step so Schema Registry finishes starting.
+Expected: `kafka` and `schema-registry`, both with status **Up**. (Error 9 if `schema-registry` is missing or shows `Exited`.)
 
-**Step 4. Schema V1**
+**Step 6. Check that Schema Registry answers**
 
-`patient-v1.avsc` contains the first schema, with four fields: `patient_id` (int), `patient_name` (string), `age` (int) and `heart_rate` (int).
+```powershell
+curl.exe http://localhost:8081/subjects
+```
 
-**Step 5. Register schema V1**
+Expected: `[]`, meaning Schema Registry is running and has no schemas yet. (Error 4 if it cannot connect.)
 
-`register-v1.json` holds the same schema as one text value under the key `"schema"`, which is the format the API needs.
+**Step 7. Look at schema V1**
+
+`patient-v1.avsc` is the first schema, with four fields: `patient_id` (int), `patient_name` (string), `age` (int) and `heart_rate` (int).
+
+`register-v1.json` holds the same schema as one text value under the key `"schema"`, which is the format the Schema Registry API accepts.
+
+**Step 8. Register schema V1**
 
 ```powershell
 curl.exe -X POST "http://localhost:8081/subjects/patient-value/versions" -H "Content-Type: application/vnd.schemaregistry.v1+json" --data-binary "@register-v1.json"
 ```
 
-Output: `{"id":1}`
+Expected: `{"id":1}`. (Error 1, 3 or 5 for other messages.)
 
-**Step 6. Set BACKWARD compatibility**
+**Step 9. Set BACKWARD compatibility**
 
 ```powershell
 curl.exe -X PUT "http://localhost:8081/config/patient-value" -H "Content-Type: application/json" --data-binary "@compatibility.json"
 ```
 
-The compatibility level of the subject is now `BACKWARD`.
+Expected: `{}`, which means the setting was saved. Some versions print `{"compatibility":"BACKWARD"}` instead; both are correct. (Error 2 if the JSON is typed inside the command.)
 
-**Step 7 and 8. Schema V2**
+**Step 10. Look at schema V2**
 
-`patient-v2.avsc` is V1 plus one new field:
+`patient-v2.avsc` is V1 plus one new field with a default value:
 
 ```json
 {
@@ -110,73 +154,93 @@ The compatibility level of the subject is now `BACKWARD`.
 }
 ```
 
-**Step 9. Register schema V2**
+**Step 11. Register schema V2**
 
 ```powershell
 curl.exe -X POST "http://localhost:8081/subjects/patient-value/versions" -H "Content-Type: application/vnd.schemaregistry.v1+json" --data-binary "@register-v2.json"
 ```
 
-Output: `{"id":2}`. The change is accepted because the new field has a default value.
+Expected: `{"id":2}`. V2 is accepted because the new field has a default value, so data written with V1 can still be read.
 
-**Step 10. Verify V2**
+**Step 12. Verify the versions**
 
 ```powershell
 curl.exe -X GET "http://localhost:8081/subjects/patient-value/versions"
 ```
 
-Output: `[1,2]`
+Expected: `[1,2]`
 
-**Step 11. Send patient data**
-
-Create the topic:
+**Step 13. Create the topic**
 
 ```powershell
 docker exec kafka kafka-topics.sh --create --topic patient-data --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
 ```
 
-Start the producer:
+Expected: `Created topic patient-data.` (Error 10 if it says `requires an argument`.)
+
+**Step 14. Send a patient record**
 
 ```powershell
 docker exec -it kafka kafka-console-producer.sh --topic patient-data --bootstrap-server localhost:9092
 ```
 
-At the `>` prompt, paste the record from `patient-v2.json` on one line and press Enter:
+At the `>` prompt, paste this record (the same data as `patient-v2.json`, on one line) and press Enter once:
 
 ```json
 {"patient_id":101,"patient_name":"Amit","age":45,"heart_rate":78,"blood_pressure":"120/80"}
 ```
 
-Press **Ctrl + C** to exit the producer.
+Press **Ctrl + C** to exit. The `What's next: Try Docker Debug` text that appears is an advert from Docker and can be ignored. (Error 11 if a field name was mistyped.)
 
-**Step 12. Schema V3**
+**Step 15. Check that the record reached Kafka**
+
+```powershell
+docker exec -it kafka kafka-console-consumer.sh --topic patient-data --from-beginning --bootstrap-server localhost:9092
+```
+
+Expected:
+
+```text
+{"patient_id":101,"patient_name":"Amit","age":45,"heart_rate":78,"blood_pressure":"120/80"}
+```
+
+The consumer keeps waiting for new messages; press **Ctrl + C** to stop it.
+
+**Step 16. Look at schema V3**
 
 `patient-v3.avsc` is V2 with the type of `patient_id` changed from `int` to `string`.
 
-**Step 13. Try to register schema V3**
+**Step 17. Try to register schema V3**
 
 ```powershell
 curl.exe -X POST "http://localhost:8081/subjects/patient-value/versions" -H "Content-Type: application/vnd.schemaregistry.v1+json" --data-binary "@register-v3.json"
 ```
 
-**Step 14. Observe the rejection**
+Expected: an error. This is the correct result:
 
-Schema Registry answers with `error_code: 409`, `TYPE_MISMATCH` and `reader type: STRING not compatible with writer type: INT`. V3 is rejected because `patient_id` is `int` in V2 and `string` in V3, so old data could not be read with the new schema.
+```text
+{"error_code":409,"message":"Schema being registered is incompatible with an earlier schema for subject \"patient-value\", details: [{errorType:'TYPE_MISMATCH', ... additionalInfo:'reader type: STRING not compatible with writer type: INT'}, {oldSchemaVersion: 2}, ... {compatibility: 'BACKWARD'}]"}
+```
 
-**Step 15. Verify all schema versions**
+**Step 18. Observe the rejection**
+
+Schema Registry rejects V3 with error 409 and `TYPE_MISMATCH`. In V2, `patient_id` is `int`; in V3 it is `string`. A consumer using V3 could not read the integer IDs already stored, so the change is not backward compatible.
+
+**Step 19. Verify all schema versions**
 
 ```powershell
 curl.exe -X GET "http://localhost:8081/subjects/patient-value/versions"
 ```
 
-Output: `[1,2]`. V3 was not stored.
+Expected: `[1,2]`. V3 was not stored.
 
-**Step 16. Stop the containers**
+**Step 20. Stop the containers**
 
 ```powershell
 docker compose down
 ```
 
-This also deletes the registered schemas, because the containers do not use a volume. Running the steps again starts from V1.
+This also deletes the registered schemas and the topic, because the containers do not use a volume. Running the steps again starts from V1. Start any container stopped in Step 3 again with `docker start <container-name>`.
 
 ## Output
 
@@ -196,6 +260,13 @@ PS> curl.exe -X GET ".../subjects/patient-value/versions"
 PS> docker exec kafka kafka-topics.sh --create --topic patient-data ...
 Created topic patient-data.
 
+PS> docker exec -it kafka kafka-console-producer.sh --topic patient-data ...
+>{"patient_id":101,"patient_name":"Amit","age":45,"heart_rate":78,"blood_pressure":"120/80"}
+>^C
+
+PS> docker exec -it kafka kafka-console-consumer.sh --topic patient-data --from-beginning ...
+{"patient_id":101,"patient_name":"Amit","age":45,"heart_rate":78,"blood_pressure":"120/80"}
+
 PS> curl.exe -X POST ".../subjects/patient-value/versions" ... "@register-v3.json"
 {"error_code":409,"message":"Schema being registered is incompatible with an earlier schema for subject \"patient-value\", details: [{errorType:'TYPE_MISMATCH', description:'The type (path '/fields/0/type') of a field in the new schema does not match with the old schema', additionalInfo:'reader type: STRING not compatible with writer type: INT'}, {oldSchemaVersion: 2}, ... {compatibility: 'BACKWARD'}]"}
 
@@ -209,7 +280,7 @@ PS> curl.exe -X GET ".../subjects/patient-value/versions"
 - V2 adds `blood_pressure` with a default value, so a reader using V2 can still read V1 data; the missing field becomes `"Unknown"`. This is a backward compatible change.
 - V3 changes the type of `patient_id` from `int` to `string`. Schema Registry rejects it with error 409 (`TYPE_MISMATCH`), so incompatible changes cannot reach the consumers.
 - The list of versions stays `[1,2]` after the failed V3 request.
-- The console producer in step 11 sends the record as plain JSON text. It shows data in the V2 shape being sent to Kafka; the compatibility check itself is done by Schema Registry in steps 9 and 13.
+- The console producer in step 14 sends the record as plain JSON text. It shows data in the V2 shape being sent to Kafka; the compatibility check itself is done by Schema Registry in steps 11 and 17.
 
 ## Errors on Windows and how to fix them
 
@@ -330,6 +401,30 @@ If the Kafka cluster from Practical 3 (`kafka1`, `kafka2`, `kafka3`) is still ru
    ```
    Schema Registry is ready when this prints `[]`.
 4. If it shows `Exited` again with a different message, it started before Kafka was ready. Run `docker compose restart schema-registry` and wait 40 seconds.
+
+### Error 10: `Option replication-factor requires an argument`
+
+**Cause:** the end of the command was cut off, so `--replication-factor` has no value. This often happens when a long command is pasted into a narrow terminal.
+
+1. Check that the command ends with `--replication-factor 1`.
+2. Run it again in full:
+   ```powershell
+   docker exec kafka kafka-topics.sh --create --topic patient-data --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1
+   ```
+3. Widen the terminal panel if long commands keep getting cut off.
+
+If it says `Topic 'patient-data' already exists`, the topic was created earlier and you can go on to Step 14.
+
+### Error 11: a field name was mistyped in the producer, or an empty line was sent
+
+**Cause:** the console producer sends any text it receives. It does not check the record against the schema, so a typo such as `"paitient_id"` or an extra Enter is sent to Kafka without an error.
+
+1. Start the producer again:
+   ```powershell
+   docker exec -it kafka kafka-console-producer.sh --topic patient-data --bootstrap-server localhost:9092
+   ```
+2. Paste the record exactly as in Step 14, press Enter once, then **Ctrl + C**.
+3. Run the consumer from Step 15. It shows every record ever sent, including the wrong one, so the correct record appears on the last line. Messages cannot be deleted from a topic one by one; to start with an empty topic, run `docker compose down` and begin again from Step 4.
 
 ## Conclusion
 
