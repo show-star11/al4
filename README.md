@@ -1,8 +1,5 @@
 # Big Data Practical 4: Schema Evolution with Kafka Schema Registry
 
-**Name:** Arvind Yadav
-**Seat no:** 31011123065
-
 ## Aim
 
 Schema Evolution: Use Kafka Schema Registry to demonstrate a "Backward Compatible" schema change.
