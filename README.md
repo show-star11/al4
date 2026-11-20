@@ -73,6 +73,21 @@ docker --version
 
 Expected: a line such as `Docker version 29.x.x`. (Error 6 if `docker` is not recognized.)
 
+If it says `docker : The term 'docker' is not recognized`, Docker Desktop is running but the terminal cannot find it. Run these lines one at a time in the same terminal:
+
+```powershell
+$d = Split-Path (Get-Process "Docker Desktop" | Select-Object -First 1).Path
+$exe = Get-ChildItem $d, (Split-Path $d), "C:\Program Files\Docker", "$env:LOCALAPPDATA\Programs" -Filter docker.exe -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+$env:PATH += ";" + $exe.DirectoryName
+docker --version
+```
+
+The last line should print the Docker version. To keep this fix for every new terminal, run this once:
+
+```powershell
+[Environment]::SetEnvironmentVariable("Path", [Environment]::GetEnvironmentVariable("Path", "User") + ";" + $exe.DirectoryName, "User")
+```
+
 **Step 3. Free the ports and memory**
 
 Kafka uses port 9092 and Schema Registry uses port 8081. Stop other containers that use them, and the Practical 3 cluster if it is still running:
